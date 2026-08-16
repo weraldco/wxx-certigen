@@ -166,6 +166,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
 .mapping-row > div > span:last-child { display: grid; gap: 3px; }
 .mapping-row strong { font-size: 11px; }
 .mapping-row small { color: var(--muted); font-size: 9px; }
+.mapping-note { margin: 9px 3px 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
 .required-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); }
 .choice-group { display: grid; gap: 8px; margin: 24px 0 0; padding: 0; border: 0; }
 .choice-group legend { margin-bottom: 2px; font-size: 11px; font-weight: 650; }
