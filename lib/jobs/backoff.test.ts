@@ -19,7 +19,7 @@ describe("computeBackoffDelayMs", () => {
 describe("isRetryable", () => {
   it("allows retries under the max attempt count", () => {
     expect(isRetryable(1)).toBe(true);
-    expect(isRetryable(MAX_ISSUANCE_ATTEMPTS - 1)).toBe(true);
+    expect(isRetryable(3)).toBe(true);
   });
 
   it("stops retrying once attempts reach the max", () => {
