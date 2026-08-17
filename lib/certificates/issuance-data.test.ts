@@ -57,4 +57,42 @@ describe("mapEnrollmentRowToIssuanceContext", () => {
     expect(() => mapEnrollmentRowToIssuanceContext({ ...validRow, recipients: null })).toThrow();
     expect(() => mapEnrollmentRowToIssuanceContext({ ...validRow, cohorts: null })).toThrow();
   });
+
+  it("throws when a relation came back as an array instead of an object", () => {
+    expect(() =>
+      mapEnrollmentRowToIssuanceContext({
+        ...validRow,
+        recipients: [{ full_name: "Jordan Lee" }] as unknown as RawEnrollmentRow["recipients"],
+      }),
+    ).toThrow("Enrollment relations are present but missing required name values.");
+  });
+
+  it("throws when name values are empty strings", () => {
+    expect(() =>
+      mapEnrollmentRowToIssuanceContext({
+        ...validRow,
+        recipients: { full_name: "" },
+      }),
+    ).toThrow("Enrollment relations are present but missing required name values.");
+
+    expect(() =>
+      mapEnrollmentRowToIssuanceContext({
+        ...validRow,
+        cohorts: {
+          ...validRow.cohorts!,
+          organizations: { name: "" },
+        },
+      }),
+    ).toThrow("Enrollment relations are present but missing required name values.");
+
+    expect(() =>
+      mapEnrollmentRowToIssuanceContext({
+        ...validRow,
+        cohorts: {
+          ...validRow.cohorts!,
+          programs: { name: "" },
+        },
+      }),
+    ).toThrow("Enrollment relations are present but missing required name values.");
+  });
 });

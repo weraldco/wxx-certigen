@@ -42,11 +42,24 @@ export function mapEnrollmentRowToIssuanceContext(row: RawEnrollmentRow): Issuan
   if (!row.recipients || !row.cohorts || !row.cohorts.organizations || !row.cohorts.programs) {
     throw new Error("Enrollment is missing required relations for issuance.");
   }
+
+  const recipientName = row.recipients.full_name;
+  const organizationName = row.cohorts.organizations.name;
+  const programName = row.cohorts.programs.name;
+
+  if (
+    typeof recipientName !== "string" || recipientName.length === 0 ||
+    typeof organizationName !== "string" || organizationName.length === 0 ||
+    typeof programName !== "string" || programName.length === 0
+  ) {
+    throw new Error("Enrollment relations are present but missing required name values.");
+  }
+
   return {
     organizationId: row.organization_id,
-    recipientName: row.recipients.full_name,
-    organizationName: row.cohorts.organizations.name,
-    programName: row.cohorts.programs.name,
+    recipientName,
+    organizationName,
+    programName,
     completionDateLabel: formatCompletionDate(row.cohorts.ends_on),
     templateKey: resolveTemplateKey(row.cohorts.templates?.preset_key),
     accent: row.cohorts.templates?.settings?.accent ?? DEFAULT_ACCENT,
@@ -73,5 +86,5 @@ export async function fetchEnrollmentRow(
     .single();
 
   if (error) throw new Error(error.message);
-  return data as RawEnrollmentRow | null;
+  return data as unknown as RawEnrollmentRow | null;
 }
