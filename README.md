@@ -129,7 +129,7 @@ If this project later moves to a Vercel plan that supports per-minute Cron, repl
 
 Deploy the Next.js application to Vercel or another Node.js-compatible host.
 
-1. Add all three environment variables to the hosting provider.
+1. Add all environment variables listed in `.env.example` to the hosting provider.
 2. Add the production `/auth/callback` URL to Supabase.
 3. Deploy the application.
 4. Publish cohorts from the deployed application so `CERTIGEN_URL` contains the public domain.
