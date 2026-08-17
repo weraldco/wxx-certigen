@@ -10,7 +10,11 @@ describe("POST /api/jobs/process-issuance", () => {
   });
 
   afterEach(() => {
-    process.env.CRON_SECRET = originalSecret;
+    if (originalSecret === undefined) {
+      delete process.env.CRON_SECRET;
+    } else {
+      process.env.CRON_SECRET = originalSecret;
+    }
   });
 
   it("rejects requests with the wrong bearer token", async () => {

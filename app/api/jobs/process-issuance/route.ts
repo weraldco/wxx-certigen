@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { fetchEnrollmentRow, mapEnrollmentRowToIssuanceContext } from "@/lib/certificates/issuance-data";
@@ -6,7 +6,9 @@ import { buildCertificatePdf } from "@/lib/certificates/build-certificate";
 import { uploadCertificatePdf } from "@/lib/certificates/storage";
 import { computeBackoffDelayMs, isRetryable, MAX_ISSUANCE_ATTEMPTS } from "@/lib/jobs/backoff";
 
-const BATCH_SIZE = 20;
+export const maxDuration = 300;
+
+const BATCH_SIZE = 5;
 
 type ClaimedJob = {
   job_id: string;
@@ -20,10 +22,22 @@ function generatePublicId(): string {
   return `CG-${randomBytes(6).toString("hex").toUpperCase()}`;
 }
 
-export async function POST(request: NextRequest) {
+function isAuthorized(request: NextRequest): boolean {
   const expectedSecret = process.env.CRON_SECRET;
-  const authHeader = request.headers.get("authorization");
-  if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+  if (!expectedSecret) return false;
+
+  const authHeader = request.headers.get("authorization") ?? "";
+  const expected = `Bearer ${expectedSecret}`;
+
+  const actualBuf = Buffer.from(authHeader);
+  const expectedBuf = Buffer.from(expected);
+  if (actualBuf.length !== expectedBuf.length) return false;
+
+  return timingSafeEqual(actualBuf, expectedBuf);
+}
+
+export async function POST(request: NextRequest) {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -36,41 +50,55 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: claimError.message }, { status: 500 });
   }
 
-  let completed = 0;
+  let issued = 0;
+  let retried = 0;
   let failed = 0;
 
   for (const job of (claimedJobs ?? []) as ClaimedJob[]) {
     try {
-      const row = await fetchEnrollmentRow(supabaseAdmin, job.enrollment_id);
-      if (!row) throw new Error(`Enrollment ${job.enrollment_id} not found`);
-      const context = mapEnrollmentRowToIssuanceContext(row);
+      // Idempotency: a prior attempt may have already inserted the credential
+      // and then died before marking the enrollment/job as done. Reuse it
+      // instead of rendering and inserting a duplicate.
+      const { data: existing, error: existingError } = await supabaseAdmin
+        .from("credentials")
+        .select("id")
+        .eq("enrollment_id", job.enrollment_id)
+        .eq("status", "active")
+        .maybeSingle();
+      if (existingError) throw new Error(existingError.message);
 
-      const credentialId = randomUUID();
-      const publicId = generatePublicId();
-      const verifyUrl = `${request.nextUrl.origin}/verify/${publicId}`;
+      if (!existing) {
+        const row = await fetchEnrollmentRow(supabaseAdmin, job.enrollment_id);
+        if (!row) throw new Error(`Enrollment ${job.enrollment_id} not found`);
+        const context = mapEnrollmentRowToIssuanceContext(row);
 
-      const pdfBuffer = await buildCertificatePdf({
-        recipientName: context.recipientName,
-        organizationName: context.organizationName,
-        programName: context.programName,
-        completionDateLabel: context.completionDateLabel,
-        certificatePublicId: publicId,
-        templateKey: context.templateKey,
-        accent: context.accent,
-        verifyUrl,
-      });
+        const credentialId = randomUUID();
+        const publicId = generatePublicId();
+        const verifyUrl = `${request.nextUrl.origin}/verify/${publicId}`;
 
-      const pdfPath = await uploadCertificatePdf(supabaseAdmin, context.organizationId, credentialId, pdfBuffer);
+        const pdfBuffer = await buildCertificatePdf({
+          recipientName: context.recipientName,
+          organizationName: context.organizationName,
+          programName: context.programName,
+          completionDateLabel: context.completionDateLabel,
+          certificatePublicId: publicId,
+          templateKey: context.templateKey,
+          accent: context.accent,
+          verifyUrl,
+        });
 
-      const { error: insertError } = await supabaseAdmin.from("credentials").insert({
-        id: credentialId,
-        public_id: publicId,
-        organization_id: context.organizationId,
-        enrollment_id: job.enrollment_id,
-        config_version: job.config_version,
-        pdf_path: pdfPath,
-      });
-      if (insertError) throw new Error(insertError.message);
+        const pdfPath = await uploadCertificatePdf(supabaseAdmin, context.organizationId, credentialId, pdfBuffer);
+
+        const { error: insertError } = await supabaseAdmin.from("credentials").insert({
+          id: credentialId,
+          public_id: publicId,
+          organization_id: context.organizationId,
+          enrollment_id: job.enrollment_id,
+          config_version: job.config_version,
+          pdf_path: pdfPath,
+        });
+        if (insertError) throw new Error(insertError.message);
+      }
 
       const { error: enrollmentError } = await supabaseAdmin
         .from("enrollments")
@@ -84,14 +112,19 @@ export async function POST(request: NextRequest) {
         .eq("id", job.job_id);
       if (completeError) throw new Error(completeError.message);
 
-      completed += 1;
+      issued += 1;
     } catch (error) {
-      failed += 1;
+      const wasTerminal = !isRetryable(job.attempts + 1);
       await handleJobFailure(supabaseAdmin, job, error);
+      if (wasTerminal) {
+        failed += 1;
+      } else {
+        retried += 1;
+      }
     }
   }
 
-  return NextResponse.json({ claimed: claimedJobs?.length ?? 0, completed, failed });
+  return NextResponse.json({ claimed: claimedJobs?.length ?? 0, issued, retried, failed });
 }
 
 async function handleJobFailure(
@@ -103,7 +136,7 @@ async function handleJobFailure(
   const message = error instanceof Error ? error.message : "Unknown issuance error";
 
   if (isRetryable(nextAttempts)) {
-    await supabaseAdmin
+    const { error: retryError } = await supabaseAdmin
       .from("jobs")
       .update({
         status: "queued",
@@ -113,10 +146,13 @@ async function handleJobFailure(
         updated_at: new Date().toISOString(),
       })
       .eq("id", job.job_id);
+    if (retryError) {
+      console.error(`Failed to record retry state for job ${job.job_id}:`, retryError.message);
+    }
     return;
   }
 
-  await supabaseAdmin
+  const { error: failError } = await supabaseAdmin
     .from("jobs")
     .update({
       status: "failed",
@@ -125,12 +161,18 @@ async function handleJobFailure(
       updated_at: new Date().toISOString(),
     })
     .eq("id", job.job_id);
+  if (failError) {
+    console.error(`Failed to record terminal failure for job ${job.job_id}:`, failError.message);
+  }
 
-  await supabaseAdmin.from("activity_events").insert({
+  const { error: activityError } = await supabaseAdmin.from("activity_events").insert({
     organization_id: job.organization_id,
     entity_type: "job",
     entity_id: job.job_id,
     action: "issuance_failed",
     details: { enrollment_id: job.enrollment_id, error: message },
   });
+  if (activityError) {
+    console.error(`Failed to record activity event for job ${job.job_id}:`, activityError.message);
+  }
 }
