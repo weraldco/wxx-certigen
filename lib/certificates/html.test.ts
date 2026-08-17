@@ -28,11 +28,11 @@ describe("buildCertificateHtml", () => {
     const html = buildCertificateHtml({
       ...baseInput,
       recipientName: "<script>alert(1)</script>",
-      programName: 'A & B "Program"',
+      programName: `A & B "Program" O'Brien`,
     });
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
-    expect(html).toContain("A &amp; B &quot;Program&quot;");
+    expect(html).toContain("A &amp; B &quot;Program&quot; O&#39;Brien");
   });
 
   it("falls back to the default accent for an invalid color value", () => {

@@ -1,3 +1,4 @@
+import type { Browser } from "puppeteer-core";
 import { buildCertificateHtml, type CertificateTemplateKey } from "./html";
 import { generateVerificationQrDataUri } from "./qr";
 import { renderCertificatePdf } from "./pdf";
@@ -13,7 +14,12 @@ export type BuildCertificatePdfInput = {
   verifyUrl: string;
 };
 
-export async function buildCertificatePdf(input: BuildCertificatePdfInput): Promise<Buffer> {
+/**
+ * Builds a single certificate PDF. An optional `browser` can be passed in
+ * (e.g. by a batch worker) so Chromium is launched once and reused across
+ * many certificates instead of once per call.
+ */
+export async function buildCertificatePdf(input: BuildCertificatePdfInput, browser?: Browser): Promise<Buffer> {
   const qrDataUri = await generateVerificationQrDataUri(input.verifyUrl);
   const html = buildCertificateHtml({
     recipientName: input.recipientName,
@@ -25,5 +31,5 @@ export async function buildCertificatePdf(input: BuildCertificatePdfInput): Prom
     accent: input.accent,
     qrDataUri,
   });
-  return renderCertificatePdf(html);
+  return renderCertificatePdf(html, browser);
 }
