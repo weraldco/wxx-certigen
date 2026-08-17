@@ -24,7 +24,7 @@ Not yet implemented:
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22.17 or newer
 - A Supabase project
 - A publicly deployed HTTPS URL for Google Apps Script integration
 
@@ -107,6 +107,23 @@ After adding the script:
 6. Submit a test response and inspect **Apps Script → Executions**.
 
 The Apps Script does not need to be deployed as a web app. The CertiGen application does need a public HTTPS deployment. Google servers cannot call `http://localhost:3000`.
+
+## Credential issuance worker
+
+`POST /api/jobs/process-issuance` renders queued certificates to PDF, generates a verification QR code, uploads the PDF to a private Supabase Storage bucket, and creates the `credentials` row. It is protected by a bearer token:
+
+```
+Authorization: Bearer <CRON_SECRET>
+```
+
+This project is on the Vercel Hobby plan, where native Vercel Cron only runs once per day — too infrequent for issuance. Instead, use an external scheduler to call the route roughly every minute, for example a free [cron-job.org](https://cron-job.org) job configured as:
+
+- URL: `https://<your-deployment>/api/jobs/process-issuance`
+- Method: POST
+- Schedule: every minute
+- Header: `Authorization: Bearer <your CRON_SECRET value>`
+
+If this project later moves to a Vercel plan that supports per-minute Cron, replace the external scheduler with a `crons` entry in `vercel.json` targeting the same route — no code changes are needed.
 
 ## Deployment
 
