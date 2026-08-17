@@ -31,13 +31,6 @@ const steps = [
   { label: "Email & launch", icon: PaperPlaneTilt },
 ];
 
-const formQuestions = [
-  "Full name",
-  "Email address",
-  "How would you rate the workshop?",
-  "What did you find most valuable?",
-];
-
 const templatePresets = [
   { key: "modern", name: "Modern frame", description: "Crisp, balanced, and versatile", accent: "#1f6f4a" },
   { key: "academic", name: "Academic seal", description: "Formal with a traditional hierarchy", accent: "#284b78" },
@@ -326,13 +319,14 @@ export function CertigenApp({ userEmail }: { userEmail: string }) {
                   <div className="mapping-head"><span>Certificate field</span><span>Google Form question</span></div>
                   <div className="mapping-row">
                     <div><span className="required-dot" /><span><strong>Participant name</strong><small>Printed on certificate</small></span></div>
-                    <select value={nameField} onChange={(e) => setNameField(e.target.value)}>{formQuestions.map((question) => <option key={question}>{question}</option>)}</select>
+                    <input required aria-label="Google Form name question" value={nameField} onChange={(e) => setNameField(e.target.value)} placeholder="Exact Google Form question title" />
                   </div>
                   <div className="mapping-row">
                     <div><span className="required-dot" /><span><strong>Email address</strong><small>Certificate delivery</small></span></div>
-                    <select value={emailField} onChange={(e) => setEmailField(e.target.value)}>{formQuestions.map((question) => <option key={question}>{question}</option>)}</select>
+                    <input required aria-label="Google Form email question" value={emailField} onChange={(e) => setEmailField(e.target.value)} placeholder="Exact Google Form question title" />
                   </div>
                 </div>
+                <p className="mapping-note">Enter each question exactly as it appears in Google Forms, including capitalization and punctuation.</p>
                 <fieldset className="choice-group">
                   <legend>When should a certificate be issued?</legend>
                   <label className={eligibility === "submission" ? "selected" : ""}>

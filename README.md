@@ -17,14 +17,12 @@ Implemented:
 
 Not yet implemented:
 
-- Background worker for PDF generation
-- QR-code generation and private PDF storage
 - Email delivery and provider event handling
 - Recipient review, revocation, and reissue dashboard screens
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22.17 or newer
 - A Supabase project
 - A publicly deployed HTTPS URL for Google Apps Script integration
 
@@ -42,6 +40,8 @@ Provide these values:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
+CRON_SECRET=a-long-random-string-you-generate
+NEXT_PUBLIC_SITE_URL=https://your-domain.com
 ```
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY` in browser code or commit `.env.local`.
@@ -52,8 +52,23 @@ Open the Supabase SQL Editor and apply every file in `supabase/migrations` in fi
 
 1. `202607230001_mvp_foundation.sql`
 2. `202607240001_publish_cohort.sql`
+3. `202608170001_issuance_worker.sql`
 
-The first migration creates the domain tables, indexes, RLS policies, ingestion function, and verification function. The second adds authenticated cohort publishing.
+The first migration creates the domain tables, indexes, RLS policies, ingestion function, and verification function. The second adds authenticated cohort publishing. The third adds the `claim_issuance_jobs` RPC the background worker uses to claim queued jobs, and creates the private `credential-pdfs` storage bucket the worker uploads rendered certificates to.
+
+If creating the `credential_pdfs_member_read` storage policy fails with a permissions error in the hosted SQL Editor (this can happen depending on your project's role configuration), create the equivalent policy manually via the Supabase dashboard's **Storage → Policies** UI instead.
+
+### Verifying the issuance worker migration
+
+The third migration was written and reviewed but never executed against a live database, so its index and storage-policy behavior are unverified. After applying it, run these in the Supabase SQL Editor:
+
+```sql
+explain (analyze) select * from public.claim_issuance_jobs(5, 6);
+-- confirm the plan shows an Index Scan on jobs_issuance_claim_idx, not a Seq Scan
+
+select policyname from pg_policies where tablename = 'objects';
+-- confirm credential_pdfs_member_read appears in the list
+```
 
 ## Authentication setup
 
@@ -108,11 +123,30 @@ After adding the script:
 
 The Apps Script does not need to be deployed as a web app. The CertiGen application does need a public HTTPS deployment. Google servers cannot call `http://localhost:3000`.
 
+## Credential issuance worker
+
+`POST /api/jobs/process-issuance` renders queued certificates to PDF, generates a verification QR code, uploads the PDF to a private Supabase Storage bucket, and creates the `credentials` row. It is protected by a bearer token:
+
+```
+Authorization: Bearer <CRON_SECRET>
+```
+
+This project is on the Vercel Hobby plan, where native Vercel Cron only runs once per day — too infrequent for issuance. Instead, use an external scheduler to call the route roughly every minute, for example a free [cron-job.org](https://cron-job.org) job configured as:
+
+- URL: `https://<your-deployment>/api/jobs/process-issuance`
+- Method: POST
+- Schedule: every minute
+- Header: `Authorization: Bearer <your CRON_SECRET value>`
+
+If this project later moves to a Vercel plan that supports per-minute Cron, replace the external scheduler with a `crons` entry in `vercel.json` targeting the same route — no code changes are needed.
+
+This route declares `maxDuration = 300`, which requires Fluid Compute to be enabled on your Vercel project (default for new projects; verify under **Project Settings → Functions**). If Fluid Compute is unavailable, lower both `maxDuration` in the route and `BATCH_SIZE` in the same file together — they're sized against each other.
+
 ## Deployment
 
 Deploy the Next.js application to Vercel or another Node.js-compatible host.
 
-1. Add all three environment variables to the hosting provider.
+1. Add all environment variables listed in `.env.example` to the hosting provider.
 2. Add the production `/auth/callback` URL to Supabase.
 3. Deploy the application.
 4. Publish cohorts from the deployed application so `CERTIGEN_URL` contains the public domain.

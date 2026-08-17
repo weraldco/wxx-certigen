@@ -10,12 +10,20 @@ CertiGen accepts Google Form submissions at `/api/google-forms/webhook`. For an 
 4. In Apps Script, open **Triggers**, add a trigger for `sendToCertigen`, and choose **From form > On form submit**.
 5. Submit one test response and inspect the Apps Script execution log.
 
+The name and email mappings in CertiGen must match the Google Form question titles exactly, including capitalization and punctuation. For example, `Email address` and `What is your email?` are different fields.
+
+Do not test `sendToCertigen` with the **Run** button in Apps Script. A manual run has no form event and therefore no `event.response`. Submit a response through the Google Form instead.
+
 ```javascript
 const CERTIGEN_URL = "https://your-domain.com/api/google-forms/webhook";
 const COHORT_ID = "cohort_0123456789abcdef";
 const WEBHOOK_SECRET = "use-the-same-value-as-your-environment-variable";
 
 function sendToCertigen(event) {
+  if (!event || !event.response) {
+    throw new Error("Use the Google Form 'On form submit' trigger. Submit the form instead of clicking Run.");
+  }
+
   const response = event.response;
   const answers = {};
 

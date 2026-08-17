@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "app/api/jobs/process-issuance/route.ts": {
+      "memory": 1024
+    }
+  }
+}
